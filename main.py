@@ -1648,507 +1648,161 @@ def render_html_content(
     update_info: Optional[Dict] = None,
 ) -> str:
     """渲染HTML内容"""
+    # 计算热点新闻数量 (用于头部显示)
+    hot_news_count = sum(len(stat["titles"]) for stat in report_data["stats"])
+    
+    # 获取当前时间
+    now = get_beijing_time()
+    time_str = now.strftime("%m-%d %H:%M")
+
+    # 确定报告类型文字
+    report_type_text = "实时分析"
+    if is_daily_summary:
+        if mode == "current":
+            report_type_text = "当前榜单"
+        elif mode == "incremental":
+            report_type_text = "增量模式"
+        else:
+            report_type_text = "当日汇总"
+
     html = """
     <!DOCTYPE html>
-    <html>
+    <html lang="zh-CN">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>热点新闻分析</title>
+        <title>TrendRadar - 热点新闻分析</title>
+        <!-- 引入 Tailwind CSS -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- 引入 html2canvas -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <!-- 引入 Google Fonts -->
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+        
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            tech: {
+                                bg: '#0f172a',
+                                card: '#1e293b',
+                                accent: '#06b6d4',
+                            }
+                        },
+                        fontFamily: {
+                            sans: ['Inter', 'sans-serif'],
+                            mono: ['JetBrains Mono', 'monospace'],
+                        },
+                        boxShadow: {
+                            'glow': '0 0 15px rgba(6, 182, 212, 0.3)',
+                            'glow-purple': '0 0 15px rgba(139, 92, 246, 0.3)',
+                        }
+                    }
+                }
+            }
+        </script>
         <style>
-            * { box-sizing: border-box; }
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-                margin: 0; 
-                padding: 16px; 
-                background: #fafafa;
-                color: #333;
-                line-height: 1.5;
+            body {
+                background-color: #0b1121;
+                background-image: 
+                    linear-gradient(rgba(6, 182, 212, 0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(6, 182, 212, 0.05) 1px, transparent 1px);
+                background-size: 30px 30px;
             }
             
-            .container {
-                max-width: 600px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 12px;
-                overflow: hidden;
-                box-shadow: 0 2px 16px rgba(0,0,0,0.06);
-            }
+            /* 自定义滚动条 */
+            ::-webkit-scrollbar { width: 8px; }
+            ::-webkit-scrollbar-track { background: #0f172a; }
+            ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
             
-            .header {
-                background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-                color: white;
-                padding: 32px 24px;
-                text-align: center;
-                position: relative;
+            .glass-panel {
+                background: rgba(30, 41, 59, 0.7);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(148, 163, 184, 0.1);
             }
-            
-            .save-buttons {
+
+            /* NEW标签闪光动画 */
+            @keyframes shine {
+                0% { transform: translateX(-100%) skewX(-15deg); }
+                100% { transform: translateX(200%) skewX(-15deg); }
+            }
+            .shine-effect::after {
+                content: '';
                 position: absolute;
-                top: 16px;
-                right: 16px;
-                display: flex;
-                gap: 8px;
-            }
-            
-            .save-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 1px solid rgba(255, 255, 255, 0.3);
-                color: white;
-                padding: 8px 16px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-                font-weight: 500;
-                transition: all 0.2s ease;
-                backdrop-filter: blur(10px);
-                white-space: nowrap;
-            }
-            
-            .save-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                border-color: rgba(255, 255, 255, 0.5);
-                transform: translateY(-1px);
-            }
-            
-            .save-btn:active {
-                transform: translateY(0);
-            }
-            
-            .save-btn:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
-            }
-            
-            .header-title {
-                font-size: 22px;
-                font-weight: 700;
-                margin: 0 0 20px 0;
-            }
-            
-            .header-info {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 16px;
-                font-size: 14px;
-                opacity: 0.95;
-            }
-            
-            .info-item {
-                text-align: center;
-            }
-            
-            .info-label {
-                display: block;
-                font-size: 12px;
-                opacity: 0.8;
-                margin-bottom: 4px;
-            }
-            
-            .info-value {
-                font-weight: 600;
-                font-size: 16px;
-            }
-            
-            .content {
-                padding: 24px;
-            }
-            
-            .word-group {
-                margin-bottom: 40px;
-            }
-            
-            .word-group:first-child {
-                margin-top: 0;
-            }
-            
-            .word-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 20px;
-                padding-bottom: 8px;
-                border-bottom: 1px solid #f0f0f0;
-            }
-            
-            .word-info {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }
-            
-            .word-name {
-                font-size: 17px;
-                font-weight: 600;
-                color: #1a1a1a;
-            }
-            
-            .word-count {
-                color: #666;
-                font-size: 13px;
-                font-weight: 500;
-            }
-            
-            .word-count.hot { color: #dc2626; font-weight: 600; }
-            .word-count.warm { color: #ea580c; font-weight: 600; }
-            
-            .word-index {
-                color: #999;
-                font-size: 12px;
-            }
-            
-            .news-item {
-                margin-bottom: 20px;
-                padding: 16px 0;
-                border-bottom: 1px solid #f5f5f5;
-                position: relative;
-                display: flex;
-                gap: 12px;
-                align-items: center;
-            }
-            
-            .news-item:last-child {
-                border-bottom: none;
-            }
-            
-            .news-item.new::after {
-                content: "NEW";
-                position: absolute;
-                top: 12px;
-                right: 0;
-                background: #fbbf24;
-                color: #92400e;
-                font-size: 9px;
-                font-weight: 700;
-                padding: 3px 6px;
-                border-radius: 4px;
-                letter-spacing: 0.5px;
-            }
-            
-            .news-number {
-                color: #999;
-                font-size: 13px;
-                font-weight: 600;
-                min-width: 20px;
-                text-align: center;
-                flex-shrink: 0;
-                background: #f8f9fa;
-                border-radius: 50%;
-                width: 24px;
-                height: 24px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                align-self: flex-start;
-                margin-top: 8px;
-            }
-            
-            .news-content {
-                flex: 1;
-                min-width: 0;
-                padding-right: 40px;
-            }
-            
-            .news-item.new .news-content {
-                padding-right: 50px;
-            }
-            
-            .news-header {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-bottom: 8px;
-                flex-wrap: wrap;
-            }
-            
-            .source-name {
-                color: #666;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            
-            .rank-num {
-                color: #fff;
-                background: #6b7280;
-                font-size: 10px;
-                font-weight: 700;
-                padding: 2px 6px;
-                border-radius: 10px;
-                min-width: 18px;
-                text-align: center;
-            }
-            
-            .rank-num.top { background: #dc2626; }
-            .rank-num.high { background: #ea580c; }
-            
-            .time-info {
-                color: #999;
-                font-size: 11px;
-            }
-            
-            .count-info {
-                color: #059669;
-                font-size: 11px;
-                font-weight: 500;
-            }
-            
-            .news-title {
-                font-size: 15px;
-                line-height: 1.4;
-                color: #1a1a1a;
-                margin: 0;
-            }
-            
-            .news-link {
-                color: #2563eb;
-                text-decoration: none;
-            }
-            
-            .news-link:hover {
-                text-decoration: underline;
-            }
-            
-            .news-link:visited {
-                color: #7c3aed;
-            }
-            
-            .new-section {
-                margin-top: 40px;
-                padding-top: 24px;
-                border-top: 2px solid #f0f0f0;
-            }
-            
-            .new-section-title {
-                color: #1a1a1a;
-                font-size: 16px;
-                font-weight: 600;
-                margin: 0 0 20px 0;
-            }
-            
-            .new-source-group {
-                margin-bottom: 24px;
-            }
-            
-            .new-source-title {
-                color: #666;
-                font-size: 13px;
-                font-weight: 500;
-                margin: 0 0 12px 0;
-                padding-bottom: 6px;
-                border-bottom: 1px solid #f5f5f5;
-            }
-            
-            .new-item {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                padding: 8px 0;
-                border-bottom: 1px solid #f9f9f9;
-            }
-            
-            .new-item:last-child {
-                border-bottom: none;
-            }
-            
-            .new-item-number {
-                color: #999;
-                font-size: 12px;
-                font-weight: 600;
-                min-width: 18px;
-                text-align: center;
-                flex-shrink: 0;
-                background: #f8f9fa;
-                border-radius: 50%;
-                width: 20px;
-                height: 20px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .new-item-rank {
-                color: #fff;
-                background: #6b7280;
-                font-size: 10px;
-                font-weight: 700;
-                padding: 3px 6px;
-                border-radius: 8px;
-                min-width: 20px;
-                text-align: center;
-                flex-shrink: 0;
-            }
-            
-            .new-item-rank.top { background: #dc2626; }
-            .new-item-rank.high { background: #ea580c; }
-            
-            .new-item-content {
-                flex: 1;
-                min-width: 0;
-            }
-            
-            .new-item-title {
-                font-size: 14px;
-                line-height: 1.4;
-                color: #1a1a1a;
-                margin: 0;
-            }
-            
-            .error-section {
-                background: #fef2f2;
-                border: 1px solid #fecaca;
-                border-radius: 8px;
-                padding: 16px;
-                margin-bottom: 24px;
-            }
-            
-            .error-title {
-                color: #dc2626;
-                font-size: 14px;
-                font-weight: 600;
-                margin: 0 0 8px 0;
-            }
-            
-            .error-list {
-                list-style: none;
-                padding: 0;
-                margin: 0;
-            }
-            
-            .error-item {
-                color: #991b1b;
-                font-size: 13px;
-                padding: 2px 0;
-                font-family: 'SF Mono', Consolas, monospace;
-            }
-            
-            .footer {
-                margin-top: 32px;
-                padding: 20px 24px;
-                background: #f8f9fa;
-                border-top: 1px solid #e5e7eb;
-                text-align: center;
-            }
-            
-            .footer-content {
-                font-size: 13px;
-                color: #6b7280;
-                line-height: 1.6;
-            }
-            
-            .footer-link {
-                color: #4f46e5;
-                text-decoration: none;
-                font-weight: 500;
-                transition: color 0.2s ease;
-            }
-            
-            .footer-link:hover {
-                color: #7c3aed;
-                text-decoration: underline;
-            }
-            
-            .project-name {
-                font-weight: 600;
-                color: #374151;
-            }
-            
-            @media (max-width: 480px) {
-                body { padding: 12px; }
-                .header { padding: 24px 20px; }
-                .content { padding: 20px; }
-                .footer { padding: 16px 20px; }
-                .header-info { grid-template-columns: 1fr; gap: 12px; }
-                .news-header { gap: 6px; }
-                .news-content { padding-right: 45px; }
-                .news-item { gap: 8px; }
-                .new-item { gap: 8px; }
-                .news-number { width: 20px; height: 20px; font-size: 12px; }
-                .save-buttons {
-                    position: static;
-                    margin-bottom: 16px;
-                    display: flex;
-                    gap: 8px;
-                    justify-content: center;
-                    flex-direction: column;
-                    width: 100%;
-                }
-                .save-btn {
-                    width: 100%;
-                }
+                top: 0; left: 0; width: 50%; height: 100%;
+                background: linear-gradient(to right, transparent, rgba(255,255,255,0.3), transparent);
+                transform: skewX(-15deg);
+                animation: shine 3s infinite;
             }
         </style>
     </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <div class="save-buttons">
-                    <button class="save-btn" onclick="saveAsImage()">保存为图片</button>
-                    <button class="save-btn" onclick="saveAsMultipleImages()">分段保存</button>
-                </div>
-                <div class="header-title">热点新闻分析</div>
-                <div class="header-info">
-                    <div class="info-item">
-                        <span class="info-label">报告类型</span>
-                        <span class="info-value">"""
+    <body class="text-slate-300 font-sans antialiased p-4 min-h-screen">
 
-    # 处理报告类型显示
-    if is_daily_summary:
-        if mode == "current":
-            html += "当前榜单"
-        elif mode == "incremental":
-            html += "增量模式"
-        else:
-            html += "当日汇总"
-    else:
-        html += "实时分析"
+        <div class="container max-w-2xl mx-auto relative">
+            <!-- 主卡片 -->
+            <div class="glass-panel rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-700/50">
+                
+                <!-- 头部 -->
+                <div class="header bg-slate-900/80 border-b border-slate-700/50 p-6 relative overflow-hidden group">
+                    <!-- 装饰背景 -->
+                    <div class="absolute top-0 right-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                    <div class="absolute top-0 left-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl -translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
 
-    html += """</span>
+                    <!-- 按钮组 -->
+                    <div class="save-buttons flex gap-3 justify-end mb-6 relative z-10">
+                        <button onclick="saveAsImage()" class="save-btn px-4 py-2 bg-slate-800 hover:bg-cyan-900/30 text-cyan-400 text-xs font-mono font-bold border border-cyan-500/30 hover:border-cyan-400 rounded transition-all duration-300 shadow-[0_0_10px_rgba(6,182,212,0.1)] hover:shadow-glow flex items-center gap-2">
+                            保存图片
+                        </button>
+                        <button onclick="saveAsMultipleImages()" class="save-btn px-4 py-2 bg-slate-800 hover:bg-purple-900/30 text-purple-400 text-xs font-mono font-bold border border-purple-500/30 hover:border-purple-400 rounded transition-all duration-300 shadow-[0_0_10px_rgba(139,92,246,0.1)] hover:shadow-glow-purple flex items-center gap-2">
+                            分段保存
+                        </button>
                     </div>
-                    <div class="info-item">
-                        <span class="info-label">新闻总数</span>
-                        <span class="info-value">"""
 
-    html += f"{total_titles} 条"
-
-    # 计算筛选后的热点新闻数量
-    hot_news_count = sum(len(stat["titles"]) for stat in report_data["stats"])
-
-    html += """</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">热点新闻</span>
-                        <span class="info-value">"""
-
-    html += f"{hot_news_count} 条"
-
-    html += """</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">生成时间</span>
-                        <span class="info-value">"""
-
-    now = get_beijing_time()
-    html += now.strftime("%m-%d %H:%M")
-
-    html += """</span>
+                    <div class="relative z-10 text-center">
+                        <h1 class="header-title text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-500 mb-6 tracking-tight">
+                            TREND RADAR <span class="text-xs align-top text-slate-500 font-mono border border-slate-700 px-1 rounded">v2.0</span>
+                        </h1>
+                        
+                        <!-- 数据概览 Grid -->
+                        <div class="header-info grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 backdrop-blur-sm">
+                            <div class="info-item flex flex-col items-center">
+                                <span class="info-label text-[10px] text-cyan-500/80 uppercase tracking-wider font-bold mb-1">Type</span>
+                                <span class="info-value font-mono text-slate-200">""" + report_type_text + """</span>
+                            </div>
+                            <div class="info-item flex flex-col items-center border-l border-slate-700/50">
+                                <span class="info-label text-[10px] text-cyan-500/80 uppercase tracking-wider font-bold mb-1">Total</span>
+                                <span class="info-value font-mono text-white font-bold">""" + str(total_titles) + """</span>
+                            </div>
+                            <div class="info-item flex flex-col items-center border-l border-slate-700/50">
+                                <span class="info-label text-[10px] text-red-500/80 uppercase tracking-wider font-bold mb-1">Hot</span>
+                                <span class="info-value font-mono text-red-500 font-bold">""" + str(hot_news_count) + """</span>
+                            </div>
+                            <div class="info-item flex flex-col items-center border-l border-slate-700/50">
+                                <span class="info-label text-[10px] text-purple-400/80 uppercase tracking-wider font-bold mb-1">Updated</span>
+                                <span class="info-value font-mono text-slate-200 text-sm mt-0.5">""" + time_str + """</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            
-            <div class="content">"""
+                
+                <div class="content p-6 space-y-8">"""
 
     # 处理失败ID错误信息
     if report_data["failed_ids"]:
         html += """
-                <div class="error-section">
-                    <div class="error-title">⚠️ 请求失败的平台</div>
-                    <ul class="error-list">"""
+                    <div class="error-section bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-6">
+                        <div class="error-title text-red-400 text-sm font-bold mb-2 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            请求失败的平台
+                        </div>
+                        <ul class="error-list space-y-1">"""
         for id_value in report_data["failed_ids"]:
-            html += f'<li class="error-item">{html_escape(id_value)}</li>'
+            html += f'<li class="error-item text-red-300/80 text-xs font-mono pl-6">{html_escape(id_value)}</li>'
         html += """
-                    </ul>
-                </div>"""
+                        </ul>
+                    </div>"""
 
     # 处理主要统计数据
     if report_data["stats"]:
@@ -2156,38 +1810,53 @@ def render_html_content(
 
         for i, stat in enumerate(report_data["stats"], 1):
             count = stat["count"]
-
-            # 确定热度等级
-            if count >= 10:
-                count_class = "hot"
-            elif count >= 5:
-                count_class = "warm"
-            else:
-                count_class = ""
-
             escaped_word = html_escape(stat["word"])
+            
+            # 确定装饰条颜色和文字样式
+            bar_color = "from-cyan-500 to-blue-500"
+            shadow_color = "rgba(6,182,212,0.6)"
+            badge_class = "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+            
+            if count >= 10:
+                bar_color = "from-red-500 to-orange-500"
+                shadow_color = "rgba(239,68,68,0.6)"
+                badge_class = "bg-red-500/10 text-red-400 border-red-500/20 font-bold"
+            elif count >= 5:
+                bar_color = "from-orange-500 to-yellow-500"
+                shadow_color = "rgba(249,115,22,0.6)"
+                badge_class = "bg-orange-500/10 text-orange-400 border-orange-500/20 font-bold"
 
             html += f"""
-                <div class="word-group">
-                    <div class="word-header">
-                        <div class="word-info">
-                            <div class="word-name">{escaped_word}</div>
-                            <div class="word-count {count_class}">{count} 条</div>
+                    <div class="word-group">
+                        <div class="word-header flex items-center justify-between border-b border-slate-700 pb-3 mb-4">
+                            <div class="word-info flex items-center gap-3">
+                                <div class="w-1 h-6 bg-gradient-to-b {bar_color} rounded-full shadow-[0_0_8px_{shadow_color}]"></div>
+                                <div class="word-name text-lg font-bold text-slate-100">{escaped_word}</div>
+                                <span class="word-count {badge_class} border text-xs font-mono px-2 py-0.5 rounded">{count} 条</span>
+                            </div>
+                            <div class="word-index text-slate-600 font-mono text-xs">{i} / {total_count}</div>
                         </div>
-                        <div class="word-index">{i}/{total_count}</div>
-                    </div>"""
+                        <div class="space-y-3">"""
 
-            # 处理每个词组下的新闻标题，给每条新闻标上序号
+            # 处理每个词组下的新闻标题
             for j, title_data in enumerate(stat["titles"], 1):
                 is_new = title_data.get("is_new", False)
-                new_class = "new" if is_new else ""
+                
+                # 基础样式
+                item_bg = "bg-slate-800/30 border-transparent hover:border-slate-600"
+                new_badge_html = ""
+                
+                if is_new:
+                    item_bg = "bg-slate-800/50 border-yellow-500/20 hover:border-yellow-500/40"
+                    new_badge_html = '<div class="absolute -top-1 -right-1 bg-yellow-500 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg shine-effect overflow-hidden z-10">NEW</div>'
 
                 html += f"""
-                    <div class="news-item {new_class}">
-                        <div class="news-number">{j}</div>
-                        <div class="news-content">
-                            <div class="news-header">
-                                <span class="source-name">{html_escape(title_data["source_name"])}</span>"""
+                            <div class="news-item group relative flex gap-4 p-3 rounded-lg {item_bg} border transition-all duration-200 hover:bg-slate-800">
+                                {new_badge_html}
+                                <div class="news-number flex-shrink-0 w-6 h-6 flex items-center justify-center rounded bg-slate-700 text-slate-400 font-mono text-xs font-bold mt-1">{j}</div>
+                                <div class="news-content flex-1 min-w-0">
+                                    <div class="news-header flex flex-wrap items-center gap-2 mb-1.5">
+                                        <span class="source-name text-xs text-cyan-600 font-bold bg-cyan-950/30 px-1.5 rounded">{html_escape(title_data["source_name"])}</span>"""
 
                 # 处理排名显示
                 ranks = title_data.get("ranks", [])
@@ -2196,42 +1865,34 @@ def render_html_content(
                     max_rank = max(ranks)
                     rank_threshold = title_data.get("rank_threshold", 10)
 
-                    # 确定排名等级
+                    # 排名徽章颜色
+                    rank_bg = "bg-slate-600"
                     if min_rank <= 3:
-                        rank_class = "top"
+                        rank_bg = "bg-red-500"
                     elif min_rank <= rank_threshold:
-                        rank_class = "high"
-                    else:
-                        rank_class = ""
+                        rank_bg = "bg-orange-500"
 
                     if min_rank == max_rank:
                         rank_text = str(min_rank)
                     else:
                         rank_text = f"{min_rank}-{max_rank}"
 
-                    html += f'<span class="rank-num {rank_class}">{rank_text}</span>'
+                    html += f'<span class="rank-num {rank_bg} text-white text-[10px] font-bold px-1.5 rounded-sm">{rank_text}</span>'
 
                 # 处理时间显示
                 time_display = title_data.get("time_display", "")
                 if time_display:
-                    # 简化时间显示格式，将波浪线替换为~
-                    simplified_time = (
-                        time_display.replace(" ~ ", "~")
-                        .replace("[", "")
-                        .replace("]", "")
-                    )
-                    html += (
-                        f'<span class="time-info">{html_escape(simplified_time)}</span>'
-                    )
+                    simplified_time = time_display.replace(" ~ ", "~").replace("[", "").replace("]", "")
+                    html += f'<span class="time-info text-[10px] text-slate-500 font-mono">{html_escape(simplified_time)}</span>'
 
                 # 处理出现次数
                 count_info = title_data.get("count", 1)
                 if count_info > 1:
-                    html += f'<span class="count-info">{count_info}次</span>'
+                    html += f'<span class="count-info text-[10px] text-green-500 font-mono">{count_info}x</span>'
 
                 html += """
-                            </div>
-                            <div class="news-title">"""
+                                    </div>
+                                    <div class="news-title text-sm text-slate-200 leading-relaxed">"""
 
                 # 处理标题和链接
                 escaped_title = html_escape(title_data["title"])
@@ -2239,75 +1900,79 @@ def render_html_content(
 
                 if link_url:
                     escaped_url = html_escape(link_url)
-                    html += f'<a href="{escaped_url}" target="_blank" class="news-link">{escaped_title}</a>'
+                    html += f'<a href="{escaped_url}" target="_blank" class="news-link hover:text-cyan-400 transition-colors">{escaped_title}</a>'
                 else:
                     html += escaped_title
 
                 html += """
-                            </div>
-                        </div>
-                    </div>"""
+                                    </div>
+                                </div>
+                            </div>"""
 
             html += """
-                </div>"""
+                        </div>
+                    </div>"""
 
     # 处理新增新闻区域
     if report_data["new_titles"]:
         html += f"""
-                <div class="new-section">
-                    <div class="new-section-title">本次新增热点 (共 {report_data['total_new_count']} 条)</div>"""
+                <div class="new-section mt-12 pt-8 border-t border-dashed border-slate-600 relative">
+                    <div class="absolute -top-3 left-0 bg-slate-800 px-2 text-xs text-slate-400 font-mono border border-slate-600 rounded">INCOMING_DATA_STREAM</div>
+                    
+                    <div class="new-section-title flex items-center gap-3 mb-6">
+                        <div class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                        <h2 class="text-lg font-bold text-slate-100">本次新增热点 (共 {report_data['total_new_count']} 条)</h2>
+                    </div>"""
 
         for source_data in report_data["new_titles"]:
             escaped_source = html_escape(source_data["source_name"])
             titles_count = len(source_data["titles"])
 
             html += f"""
-                    <div class="new-source-group">
-                        <div class="new-source-title">{escaped_source} · {titles_count}条</div>"""
+                    <div class="new-source-group mb-6">
+                        <div class="new-source-title text-xs font-bold text-cyan-500 uppercase tracking-wider mb-3 pb-1 border-b border-slate-700/50">{escaped_source} · {titles_count}条</div>
+                        <div class="space-y-2">"""
 
-            # 为新增新闻也添加序号
             for idx, title_data in enumerate(source_data["titles"], 1):
                 ranks = title_data.get("ranks", [])
-
-                # 处理新增新闻的排名显示
-                rank_class = ""
+                
+                rank_bg = "bg-slate-700"
+                rank_text = "?"
                 if ranks:
                     min_rank = min(ranks)
                     if min_rank <= 3:
-                        rank_class = "top"
+                        rank_bg = "bg-red-600"
                     elif min_rank <= title_data.get("rank_threshold", 10):
-                        rank_class = "high"
-
+                        rank_bg = "bg-orange-600"
+                    
                     if len(ranks) == 1:
                         rank_text = str(ranks[0])
                     else:
                         rank_text = f"{min(ranks)}-{max(ranks)}"
-                else:
-                    rank_text = "?"
 
                 html += f"""
-                        <div class="new-item">
-                            <div class="new-item-number">{idx}</div>
-                            <div class="new-item-rank {rank_class}">{rank_text}</div>
-                            <div class="new-item-content">
-                                <div class="new-item-title">"""
+                            <div class="new-item flex items-center gap-3 p-2 hover:bg-slate-800/50 rounded transition-colors">
+                                <span class="new-item-number font-mono text-xs text-slate-500">{idx}</span>
+                                <span class="new-item-rank {rank_bg} text-slate-300 text-[10px] font-bold px-1.5 rounded">{rank_text}</span>
+                                <div class="new-item-content flex-1 min-w-0">
+                                    <div class="new-item-title text-sm text-slate-300">"""
 
-                # 处理新增新闻的链接
                 escaped_title = html_escape(title_data["title"])
                 link_url = title_data.get("mobile_url") or title_data.get("url", "")
 
                 if link_url:
                     escaped_url = html_escape(link_url)
-                    html += f'<a href="{escaped_url}" target="_blank" class="news-link">{escaped_title}</a>'
+                    html += f'<a href="{escaped_url}" target="_blank" class="news-link hover:text-yellow-400 transition-colors">{escaped_title}</a>'
                 else:
                     html += escaped_title
 
                 html += """
+                                    </div>
                                 </div>
-                            </div>
-                        </div>"""
+                            </div>"""
 
             html += """
+                        </div>
                     </div>"""
 
         html += """
@@ -2316,18 +1981,18 @@ def render_html_content(
     html += """
             </div>
             
-            <div class="footer">
-                <div class="footer-content">
-                    由 <span class="project-name">TrendRadar</span> 生成 · 
-                    <a href="https://github.com/sansan0/TrendRadar" target="_blank" class="footer-link">
-                        GitHub 开源项目
+            <div class="footer bg-slate-900 p-6 border-t border-slate-700 text-center">
+                <div class="footer-content text-xs text-slate-500 font-mono">
+                    SYSTEM GENERATED BY <span class="text-cyan-500 font-bold">TrendRadar</span> · 
+                    <a href="https://github.com/sansan0/TrendRadar" target="_blank" class="footer-link hover:text-purple-400 transition-colors">
+                        GITHUB REPOSITORY
                     </a>"""
 
     if update_info:
         html += f"""
                     <br>
-                    <span style="color: #ea580c; font-weight: 500;">
-                        发现新版本 {update_info['remote_version']}，当前版本 {update_info['current_version']}
+                    <span class="text-orange-500 font-bold mt-2 block">
+                        [UPDATE AVAILABLE] Remote: {update_info['remote_version']} / Local: {update_info['current_version']}
                     </span>"""
 
     html += """
@@ -2336,38 +2001,36 @@ def render_html_content(
         </div>
         
         <script>
+            // 统一深色背景配置，防止截图变白
+            const IMG_CONFIG = {
+                backgroundColor: '#0b1121',
+                scale: 2
+            };
+
             async function saveAsImage() {
-                const button = event.target;
-                const originalText = button.textContent;
+                const button = event.target.closest('button');
+                const originalHTML = button.innerHTML;
                 
                 try {
-                    button.textContent = '生成中...';
+                    button.innerHTML = '<span class="animate-pulse">PROCESSING...</span>';
                     button.disabled = true;
                     window.scrollTo(0, 0);
                     
-                    // 等待页面稳定
                     await new Promise(resolve => setTimeout(resolve, 200));
                     
-                    // 截图前隐藏按钮
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'hidden';
                     
-                    // 再次等待确保按钮完全隐藏
                     await new Promise(resolve => setTimeout(resolve, 100));
                     
                     const container = document.querySelector('.container');
                     
                     const canvas = await html2canvas(container, {
-                        backgroundColor: '#ffffff',
-                        scale: 1.5,
+                        backgroundColor: IMG_CONFIG.backgroundColor,
+                        scale: IMG_CONFIG.scale,
                         useCORS: true,
                         allowTaint: false,
-                        imageTimeout: 10000,
-                        removeContainer: false,
-                        foreignObjectRendering: false,
                         logging: false,
-                        width: container.offsetWidth,
-                        height: container.offsetHeight,
                         x: 0,
                         y: 0,
                         scrollX: 0,
@@ -2380,45 +2043,44 @@ def render_html_content(
                     
                     const link = document.createElement('a');
                     const now = new Date();
-                    const filename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.png`;
+                    const filename = `TrendRadar_Tech_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.png`;
                     
                     link.download = filename;
                     link.href = canvas.toDataURL('image/png', 1.0);
                     
-                    // 触发下载
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
                     
-                    button.textContent = '保存成功!';
+                    button.innerHTML = '<span class="text-green-400 font-bold">SUCCESS</span>';
                     setTimeout(() => {
-                        button.textContent = originalText;
+                        button.innerHTML = originalHTML;
                         button.disabled = false;
                     }, 2000);
                     
                 } catch (error) {
+                    console.error(error);
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'visible';
-                    button.textContent = '保存失败';
+                    button.innerHTML = '<span class="text-red-500 font-bold">ERROR</span>';
                     setTimeout(() => {
-                        button.textContent = originalText;
+                        button.innerHTML = originalHTML;
                         button.disabled = false;
                     }, 2000);
                 }
             }
             
             async function saveAsMultipleImages() {
-                const button = event.target;
-                const originalText = button.textContent;
+                const button = event.target.closest('button');
+                const originalHTML = button.innerHTML;
                 const container = document.querySelector('.container');
-                const scale = 1.5; 
-                const maxHeight = 5000 / scale;
+                // 调整分割高度适应新布局
+                const maxHeight = 3000;
                 
                 try {
-                    button.textContent = '分析中...';
+                    button.innerHTML = '<span class="animate-pulse">ANALYZING...</span>';
                     button.disabled = true;
                     
-                    // 获取所有可能的分割元素
                     const newsItems = Array.from(container.querySelectorAll('.news-item'));
                     const wordGroups = Array.from(container.querySelectorAll('.word-group'));
                     const newSection = container.querySelector('.new-section');
@@ -2426,11 +2088,10 @@ def render_html_content(
                     const header = container.querySelector('.header');
                     const footer = container.querySelector('.footer');
                     
-                    // 计算元素位置和高度
                     const containerRect = container.getBoundingClientRect();
                     const elements = [];
                     
-                    // 添加header作为必须包含的元素
+                    // 收集元素逻辑保持不变
                     elements.push({
                         type: 'header',
                         element: header,
@@ -2439,7 +2100,6 @@ def render_html_content(
                         height: header.offsetHeight
                     });
                     
-                    // 添加错误信息（如果存在）
                     if (errorSection) {
                         const rect = errorSection.getBoundingClientRect();
                         elements.push({
@@ -2451,13 +2111,11 @@ def render_html_content(
                         });
                     }
                     
-                    // 按word-group分组处理news-item
                     wordGroups.forEach(group => {
                         const groupRect = group.getBoundingClientRect();
                         const groupNewsItems = group.querySelectorAll('.news-item');
-                        
-                        // 添加word-group的header部分
                         const wordHeader = group.querySelector('.word-header');
+                        
                         if (wordHeader) {
                             const headerRect = wordHeader.getBoundingClientRect();
                             elements.push({
@@ -2470,7 +2128,6 @@ def render_html_content(
                             });
                         }
                         
-                        // 添加每个news-item
                         groupNewsItems.forEach(item => {
                             const rect = item.getBoundingClientRect();
                             elements.push({
@@ -2484,7 +2141,6 @@ def render_html_content(
                         });
                     });
                     
-                    // 添加新增新闻部分
                     if (newSection) {
                         const rect = newSection.getBoundingClientRect();
                         elements.push({
@@ -2496,7 +2152,6 @@ def render_html_content(
                         });
                     }
                     
-                    // 添加footer
                     const footerRect = footer.getBoundingClientRect();
                     elements.push({
                         type: 'footer',
@@ -2506,9 +2161,8 @@ def render_html_content(
                         height: footer.offsetHeight
                     });
                     
-                    // 计算分割点
                     const segments = [];
-                    let currentSegment = { start: 0, end: 0, height: 0, includeHeader: true };
+                    let currentSegment = { start: 0, end: 0, height: 0 };
                     let headerHeight = header.offsetHeight;
                     currentSegment.height = headerHeight;
                     
@@ -2516,18 +2170,13 @@ def render_html_content(
                         const element = elements[i];
                         const potentialHeight = element.bottom - currentSegment.start;
                         
-                        // 检查是否需要创建新分段
                         if (potentialHeight > maxHeight && currentSegment.height > headerHeight) {
-                            // 在前一个元素结束处分割
                             currentSegment.end = elements[i - 1].bottom;
                             segments.push(currentSegment);
-                            
-                            // 开始新分段
                             currentSegment = {
                                 start: currentSegment.end,
                                 end: 0,
-                                height: element.bottom - currentSegment.end,
-                                includeHeader: false
+                                height: element.bottom - currentSegment.end
                             };
                         } else {
                             currentSegment.height = potentialHeight;
@@ -2535,57 +2184,37 @@ def render_html_content(
                         }
                     }
                     
-                    // 添加最后一个分段
                     if (currentSegment.height > 0) {
                         currentSegment.end = container.offsetHeight;
                         segments.push(currentSegment);
                     }
                     
-                    button.textContent = `生成中 (0/${segments.length})...`;
-                    
-                    // 隐藏保存按钮
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'hidden';
                     
-                    // 为每个分段生成图片
                     const images = [];
                     for (let i = 0; i < segments.length; i++) {
                         const segment = segments[i];
-                        button.textContent = `生成中 (${i + 1}/${segments.length})...`;
+                        button.innerHTML = `SAVING (${i + 1}/${segments.length})...`;
                         
-                        // 创建临时容器用于截图
                         const tempContainer = document.createElement('div');
-                        tempContainer.style.cssText = `
-                            position: absolute;
-                            left: -9999px;
-                            top: 0;
-                            width: ${container.offsetWidth}px;
-                            background: white;
-                        `;
+                        tempContainer.style.cssText = `position:absolute;left:-9999px;top:0;width:${container.offsetWidth}px;background:#0b1121;`; // 临时容器也是深色
                         tempContainer.className = 'container';
                         
-                        // 克隆容器内容
                         const clonedContainer = container.cloneNode(true);
-                        
-                        // 移除克隆内容中的保存按钮
                         const clonedButtons = clonedContainer.querySelector('.save-buttons');
-                        if (clonedButtons) {
-                            clonedButtons.style.display = 'none';
-                        }
+                        if (clonedButtons) clonedButtons.style.display = 'none';
                         
                         tempContainer.appendChild(clonedContainer);
                         document.body.appendChild(tempContainer);
                         
-                        // 等待DOM更新
                         await new Promise(resolve => setTimeout(resolve, 100));
                         
-                        // 使用html2canvas截取特定区域
                         const canvas = await html2canvas(clonedContainer, {
-                            backgroundColor: '#ffffff',
-                            scale: scale,
+                            backgroundColor: IMG_CONFIG.backgroundColor, // 关键：深色背景
+                            scale: IMG_CONFIG.scale,
                             useCORS: true,
                             allowTaint: false,
-                            imageTimeout: 10000,
                             logging: false,
                             width: container.offsetWidth,
                             height: segment.end - segment.start,
@@ -2596,17 +2225,13 @@ def render_html_content(
                         });
                         
                         images.push(canvas.toDataURL('image/png', 1.0));
-                        
-                        // 清理临时容器
                         document.body.removeChild(tempContainer);
                     }
                     
-                    // 恢复按钮显示
                     buttons.style.visibility = 'visible';
                     
-                    // 下载所有图片
                     const now = new Date();
-                    const baseFilename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+                    const baseFilename = `TrendRadar_Tech_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
                     
                     for (let i = 0; i < images.length; i++) {
                         const link = document.createElement('a');
@@ -2615,14 +2240,12 @@ def render_html_content(
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
-                        
-                        // 延迟一下避免浏览器阻止多个下载
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 200));
                     }
                     
-                    button.textContent = `已保存 ${segments.length} 张图片!`;
+                    button.innerHTML = `<span class="text-green-400">DONE (${segments.length})</span>`;
                     setTimeout(() => {
-                        button.textContent = originalText;
+                        button.innerHTML = originalHTML;
                         button.disabled = false;
                     }, 2000);
                     
@@ -2630,9 +2253,9 @@ def render_html_content(
                     console.error('分段保存失败:', error);
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'visible';
-                    button.textContent = '保存失败';
+                    button.innerHTML = '<span class="text-red-500">FAIL</span>';
                     setTimeout(() => {
-                        button.textContent = originalText;
+                        button.innerHTML = originalHTML;
                         button.disabled = false;
                     }, 2000);
                 }
